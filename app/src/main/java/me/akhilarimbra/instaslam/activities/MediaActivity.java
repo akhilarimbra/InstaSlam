@@ -4,7 +4,10 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.provider.MediaStore;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
@@ -13,9 +16,15 @@ import android.support.v7.app.ActionBar;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.os.Handler;
+import android.support.v7.widget.GridLayoutManager;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
 import android.util.Log;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.ImageView;
 
 import java.util.ArrayList;
 
@@ -99,6 +108,7 @@ public class MediaActivity extends AppCompatActivity {
 
     final int PERMISSION_READ_EXTERNAL = 111;
     private ArrayList<InstaImage> images = new ArrayList<>();
+    private ImageView selectedImage;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -118,6 +128,19 @@ public class MediaActivity extends AppCompatActivity {
                 toggle();
             }
         });
+
+        selectedImage = (ImageView) findViewById(R.id.selected_image_view);
+
+        RecyclerView recyclerView = (RecyclerView) findViewById(R.id.content_images);
+        ImagesViewAdapter adapter = new ImagesViewAdapter(images);
+
+
+        recyclerView.setAdapter(adapter);
+
+        GridLayoutManager layoutManager = new GridLayoutManager(getBaseContext(), 4);
+        layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
+
+        recyclerView.setLayoutManager(layoutManager );
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) !=
                 PackageManager.PERMISSION_GRANTED) {
@@ -147,19 +170,33 @@ public class MediaActivity extends AppCompatActivity {
     }
 
     public void retriveAndSetImages() {
-        images.clear();
-        Cursor cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null, null, null, null);
+        AsyncTask.execute(new Runnable() {
+            @Override
+            public void run() {
+                images.clear();
+                Cursor cursor = getContentResolver().query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, null, null, null, null);
 
-        if (cursor != null) {
-            cursor.moveToFirst();
+                if (cursor != null) {
+                    cursor.moveToFirst();
 
-            for (int i = 0; i < cursor.getCount() ; i++) {
-                cursor.moveToPosition(i);
-                Log.v("Testing InstaImage", "URL : " + cursor.getString(1));
-                InstaImage instaImage = new InstaImage(Uri.parse(cursor.getString(1)));
-                images.add(instaImage);
+                    for (int i = 0; i < cursor.getCount() ; i++) {
+                        cursor.moveToPosition(i);
+                        Log.v("Testing InstaImage", "URL : " + cursor.getString(1));
+                        InstaImage instaImage = new InstaImage(Uri.parse(cursor.getString(1)));
+                        images.add(instaImage);
+                    }
+                }
+
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        // This is where you will set images on ReCyclerViewAdapter
+                        // Update Images below
+
+                    }
+                });
             }
-        }
+        });
     }
 
     @Override
@@ -213,5 +250,75 @@ public class MediaActivity extends AppCompatActivity {
     private void delayedHide(int delayMillis) {
         mHideHandler.removeCallbacks(mHideRunnable);
         mHideHandler.postDelayed(mHideRunnable, delayMillis);
+    }
+
+    public class ImagesViewAdapter extends RecyclerView.Adapter<ImagesViewHolder> {
+        private ArrayList<InstaImage> images;
+
+        public ImagesViewAdapter(ArrayList<InstaImage> images) {
+            this.images = images;
+        }
+
+        @Override
+        public void onBindViewHolder(ImagesViewHolder holder, int position) {
+            final InstaImage image;
+            image = images.get(position);
+            holder.updateUI(image);
+
+            final ImagesViewHolder viewHolder = holder;
+
+            holder.itemView.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    selectedImage.setImageDrawable(viewHolder.image.getDrawable());
+                }
+            });
+        }
+
+        @Override
+        public int getItemCount() {
+            return images.size();
+        }
+
+        @Override
+        public ImagesViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
+            View card = LayoutInflater.from(parent.getContext()).inflate(R.layout.card_image, parent, false);
+            return new ImagesViewHolder(card);
+        }
+    }
+
+    public class ImagesViewHolder extends RecyclerView.ViewHolder {
+
+        private ImageView image;
+
+        public ImagesViewHolder(View itemView) {
+            super(itemView);
+            image = (ImageView) itemView.findViewById(R.id.image_thumbnail);
+        }
+
+        public void updateUI(InstaImage image) {
+            // Convert/grab a real image from the URL
+            this.image.setImageBitmap(decodeURI(image.getImageResourceUrl().getPath()));
+        }
+    }
+
+    public Bitmap decodeURI(String filePath) {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+
+        // Only scale if we need to
+        // (16384 buffer for image processing)
+        Boolean scaleByHeight = Math.abs(options.outHeight - 100) >= Math.abs(options.outWidth - 100);
+        if (options.outHeight * options.outWidth * 2 >= 16384) {
+            // Load, scaling to smallest power of 2 that will get it <= desired dimensions
+            double sampleSize = scaleByHeight ? options.outHeight / 1000 : options.outWidth / 1000;
+            options.inSampleSize = (int) Math.pow(2d, Math.floor(Math.log(sampleSize)/Math.log(2d)));
+        }
+
+        options.inJustDecodeBounds = false;
+        options.inTempStorage = new byte[512];
+        Bitmap bitmap = BitmapFactory.decodeFile(filePath, options);
+
+        return bitmap;
     }
 }
